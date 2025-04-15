@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 import requests
 import json
 import os
+import re
 
 app = Flask(__name__)
 SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")
@@ -17,15 +18,9 @@ def scrape_google_trends(keyword):
         print(f"📥 Widget response: {widget_res.status_code}")
 
         raw_text = widget_res.text.strip()
-        prefix_index = raw_text.find(")]}',")
-        if prefix_index != -1:
-            cleaned_json = raw_text[prefix_index + 5:].strip()
-        else:
-            print("❌ Widget response missing expected prefix entirely")
-            print("🔧 Raw widget response (first 500):", raw_text[:500])
-            return None
-
+        cleaned_json = re.sub(r"^\)\]\}',\s*", "", raw_text).strip()
         print("🔧 Cleaned widget preview:", cleaned_json[:300])
+
         widgets = json.loads(cleaned_json)
 
         # STEP 2: Get TIMESERIES widget
@@ -42,23 +37,10 @@ def scrape_google_trends(keyword):
         print(f"📥 Multiline response: {multiline_res.status_code}")
 
         raw_multiline = multiline_res.text.strip()
-        prefix_index = raw_multiline.find(")]}',")
-        if prefix_index != -1:
-            multiline_clean = raw_multiline[prefix_index + 5:].strip()
-        else:
-            print("❌ Multiline response missing expected prefix entirely")
-            print("🔧 Raw multiline response (first 500):", raw_multiline[:500])
-            return None
-
+        multiline_clean = re.sub(r"^\)\]\}',\s*", "", raw_multiline).strip()
         print("🔧 Cleaned multiline preview:", multiline_clean[:300])
 
-        try:
-            trend_json = json.loads(multiline_clean)
-        except json.JSONDecodeError as e:
-            print("❌ Multiline JSON decode error:", e)
-            print(multiline_clean[:1000])
-            return None
-
+        trend_json = json.loads(multiline_clean)
         timeline_data = trend_json["default"]["timelineData"]
         trend = [
             {"date": entry["formattedTime"], "interest": entry["value"][0]}
