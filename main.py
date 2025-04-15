@@ -2,18 +2,16 @@ from flask import Flask, request, jsonify
 import requests
 import json
 import re
-import os
 from flask_cors import CORS
+import os
 
 app = Flask(__name__)
 CORS(app)
 
-# Pull your API key from Railway environment variable
-SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")
+SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")  # using Railway environment variable
 
 def clean_keyword(keyword):
-    # Strip whitespace, lowercase, remove punctuation, and keep only alphanumeric + space
-    keyword = keyword.strip()
+    # Lowercase, remove punctuation, and keep only alphanumeric + space
     cleaned = re.sub(r'[^\w\s]', '', keyword.lower())
     parts = cleaned.split()
     filtered = [p for p in parts if len(p) > 2]  # Filter out short/noise words
@@ -21,6 +19,7 @@ def clean_keyword(keyword):
 
 def scrape_google_trends(keyword):
     try:
+        keyword = keyword.strip()
         print(f"🔍 Scraping trends for: {keyword}")
         keyword = clean_keyword(keyword)
         if not keyword:
@@ -30,7 +29,9 @@ def scrape_google_trends(keyword):
         trends_url = f"https://trends.google.com/trends/api/explore?hl=en-US&tz=360&req={{\"comparisonItem\":[{{\"keyword\":\"{keyword}\",\"geo\":\"\",\"time\":\"today 12-m\"}}],\"category\":0,\"property\":\"\"}}"
         widget_res = requests.get(f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={trends_url}")
         print(f"📥 Widget response: {widget_res.status_code}")
-        if widget_res.status_code != 200:
+        print(f"📥 Raw widget response text: {widget_res.text[:200]}")
+
+        if widget_res.status_code != 200 or not widget_res.text.startswith(")]}'"):
             raise ValueError("Invalid widget response format")
 
         cleaned_json = widget_res.text.replace(")]}',", "")
@@ -47,8 +48,8 @@ def scrape_google_trends(keyword):
         )
         multiline_res = requests.get(f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={multiline_url}")
         print(f"📥 Multiline response: {multiline_res.status_code}")
-        if multiline_res.status_code != 200:
-            raise ValueError("Multiline fetch failed")
+        if multiline_res.status_code != 200 or not multiline_res.text.startswith(")]}'"):
+            raise ValueError("Invalid multiline response format")
 
         multiline_clean = multiline_res.text.replace(")]}',", "")
         trend_json = json.loads(multiline_clean)
