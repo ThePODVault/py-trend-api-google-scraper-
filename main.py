@@ -8,10 +8,11 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")  # using Railway environment variable
+SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")  # Make sure this matches your Railway variable name
 
 def clean_keyword(keyword):
     # Lowercase, remove punctuation, and keep only alphanumeric + space
+    keyword = keyword.strip().replace("\n", "")
     cleaned = re.sub(r'[^\w\s]', '', keyword.lower())
     parts = cleaned.split()
     filtered = [p for p in parts if len(p) > 2]  # Filter out short/noise words
@@ -19,8 +20,8 @@ def clean_keyword(keyword):
 
 def scrape_google_trends(keyword):
     try:
-        keyword = keyword.strip()
         print(f"🔍 Scraping trends for: {keyword}")
+        keyword = keyword.strip().replace("\n", "")  # Extra safety
         keyword = clean_keyword(keyword)
         if not keyword:
             raise ValueError("Keyword is empty after cleaning")
@@ -29,9 +30,7 @@ def scrape_google_trends(keyword):
         trends_url = f"https://trends.google.com/trends/api/explore?hl=en-US&tz=360&req={{\"comparisonItem\":[{{\"keyword\":\"{keyword}\",\"geo\":\"\",\"time\":\"today 12-m\"}}],\"category\":0,\"property\":\"\"}}"
         widget_res = requests.get(f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={trends_url}")
         print(f"📥 Widget response: {widget_res.status_code}")
-        print(f"📥 Raw widget response text: {widget_res.text[:200]}")
-
-        if widget_res.status_code != 200 or not widget_res.text.startswith(")]}'"):
+        if widget_res.status_code != 200:
             raise ValueError("Invalid widget response format")
 
         cleaned_json = widget_res.text.replace(")]}',", "")
@@ -48,9 +47,6 @@ def scrape_google_trends(keyword):
         )
         multiline_res = requests.get(f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={multiline_url}")
         print(f"📥 Multiline response: {multiline_res.status_code}")
-        if multiline_res.status_code != 200 or not multiline_res.text.startswith(")]}'"):
-            raise ValueError("Invalid multiline response format")
-
         multiline_clean = multiline_res.text.replace(")]}',", "")
         trend_json = json.loads(multiline_clean)
 
@@ -67,7 +63,7 @@ def scrape_google_trends(keyword):
 
 @app.route("/trend")
 def get_trend():
-    keyword = request.args.get("keyword", "").strip()
+    keyword = request.args.get("keyword", "").strip().replace("\n", "")  # <- fix applied here too
     trend_data = scrape_google_trends(keyword)
     if trend_data:
         return jsonify(trend_data)
