@@ -10,7 +10,8 @@ CORS(app)
 SCRAPER_API_KEY = "your_scraperapi_key_here"  # Replace with your actual ScraperAPI key
 
 def clean_keyword(keyword):
-    # Lowercase, remove punctuation, and keep only alphanumeric + space
+    # Strip whitespace, lowercase, remove punctuation, and keep only alphanumeric + space
+    keyword = keyword.strip()
     cleaned = re.sub(r'[^\w\s]', '', keyword.lower())
     parts = cleaned.split()
     filtered = [p for p in parts if len(p) > 2]  # Filter out short/noise words
@@ -44,6 +45,9 @@ def scrape_google_trends(keyword):
         )
         multiline_res = requests.get(f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={multiline_url}")
         print(f"📥 Multiline response: {multiline_res.status_code}")
+        if multiline_res.status_code != 200:
+            raise ValueError("Multiline fetch failed")
+
         multiline_clean = multiline_res.text.replace(")]}',", "")
         trend_json = json.loads(multiline_clean)
 
@@ -60,7 +64,7 @@ def scrape_google_trends(keyword):
 
 @app.route("/trend")
 def get_trend():
-    keyword = request.args.get("keyword", "")
+    keyword = request.args.get("keyword", "").strip()
     trend_data = scrape_google_trends(keyword)
     if trend_data:
         return jsonify(trend_data)
