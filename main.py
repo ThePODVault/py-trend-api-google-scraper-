@@ -2,12 +2,14 @@ from flask import Flask, request, jsonify
 import requests
 import json
 import re
+import os
 from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)
 
-SCRAPER_API_KEY = "your_scraperapi_key_here"  # Replace with your actual ScraperAPI key
+# Pull your API key from Railway environment variable
+SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")
 
 def clean_keyword(keyword):
     # Strip whitespace, lowercase, remove punctuation, and keep only alphanumeric + space
