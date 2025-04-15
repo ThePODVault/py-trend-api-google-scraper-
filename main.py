@@ -8,11 +8,10 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")  # Make sure this matches your Railway variable name
+SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")  # Uses Railway environment variable
 
 def clean_keyword(keyword):
     # Lowercase, remove punctuation, and keep only alphanumeric + space
-    keyword = keyword.strip().replace("\n", "")
     cleaned = re.sub(r'[^\w\s]', '', keyword.lower())
     parts = cleaned.split()
     filtered = [p for p in parts if len(p) > 2]  # Filter out short/noise words
@@ -20,8 +19,8 @@ def clean_keyword(keyword):
 
 def scrape_google_trends(keyword):
     try:
+        keyword = keyword.strip().replace("\n", "").replace("\r", "")
         print(f"🔍 Scraping trends for: {keyword}")
-        keyword = keyword.strip().replace("\n", "")  # Extra safety
         keyword = clean_keyword(keyword)
         if not keyword:
             raise ValueError("Keyword is empty after cleaning")
@@ -63,8 +62,10 @@ def scrape_google_trends(keyword):
 
 @app.route("/trend")
 def get_trend():
-    keyword = request.args.get("keyword", "").strip().replace("\n", "")  # <- fix applied here too
-    trend_data = scrape_google_trends(keyword)
+    raw_keyword = request.args.get("keyword", "")
+    cleaned_keyword = raw_keyword.strip().replace("\n", "").replace("\r", "")
+    print(f"📥 Raw keyword: {raw_keyword} -> Cleaned: {cleaned_keyword}")
+    trend_data = scrape_google_trends(cleaned_keyword)
     if trend_data:
         return jsonify(trend_data)
     else:
