@@ -2,7 +2,6 @@ from flask import Flask, request, jsonify
 import requests
 import json
 import os
-import re
 
 app = Flask(__name__)
 SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")
@@ -18,9 +17,17 @@ def scrape_google_trends(keyword):
         print(f"📥 Widget response: {widget_res.status_code}")
 
         raw_text = widget_res.text.strip()
-        cleaned_json = re.sub(r"^\)\]\}',\s*", "", raw_text).strip()
-        print("🔧 Cleaned widget preview:", cleaned_json[:300])
+        cleaned_json = raw_text
+        if raw_text.startswith(")]}'"):
+            cleaned_json = raw_text[5:].strip()
+        elif ")]}'," in raw_text:
+            cleaned_json = raw_text.split(")]}',", 1)[-1].strip()
+        else:
+            print("❌ Widget response still has issues")
+            print("🔧 Raw widget response (first 500):", raw_text[:500])
+            return None
 
+        print("🔧 Cleaned widget preview:", cleaned_json[:300])
         widgets = json.loads(cleaned_json)
 
         # STEP 2: Get TIMESERIES widget
@@ -37,10 +44,19 @@ def scrape_google_trends(keyword):
         print(f"📥 Multiline response: {multiline_res.status_code}")
 
         raw_multiline = multiline_res.text.strip()
-        multiline_clean = re.sub(r"^\)\]\}',\s*", "", raw_multiline).strip()
-        print("🔧 Cleaned multiline preview:", multiline_clean[:300])
+        multiline_clean = raw_multiline
+        if raw_multiline.startswith(")]}'"):
+            multiline_clean = raw_multiline[5:].strip()
+        elif ")]}'," in raw_multiline:
+            multiline_clean = raw_multiline.split(")]}',", 1)[-1].strip()
+        else:
+            print("❌ Multiline response still has issues")
+            print("🔧 Raw multiline response (first 500):", raw_multiline[:500])
+            return None
 
+        print("🔧 Cleaned multiline preview:", multiline_clean[:300])
         trend_json = json.loads(multiline_clean)
+
         timeline_data = trend_json["default"]["timelineData"]
         trend = [
             {"date": entry["formattedTime"], "interest": entry["value"][0]}
