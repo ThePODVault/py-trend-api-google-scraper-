@@ -1,52 +1,65 @@
 from flask import Flask, request, jsonify
 import requests
 import json
-import re
-from flask_cors import CORS
 import os
+from flask_cors import CORS
 
 app = Flask(__name__)
 CORS(app)
 
-SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")  # Uses Railway environment variable
+SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")
 
-def clean_keyword(keyword):
-    # Lowercase, remove punctuation, and keep only alphanumeric + space
-    cleaned = re.sub(r'[^\w\s]', '', keyword.lower())
-    parts = cleaned.split()
-    filtered = [p for p in parts if len(p) > 2]  # Filter out short/noise words
-    return ' '.join(filtered[:4])  # Limit to first 4 strong words
+@app.route("/trend", methods=["GET"])
+def get_trend():
+    keyword = request.args.get("keyword")
+    if not keyword:
+        return jsonify({"error": "Missing 'keyword' parameter"}), 400
 
-def scrape_google_trends(keyword):
+    print(f"🔍 Scraping trends for: {keyword}")
+
     try:
-        keyword = keyword.strip().replace("\n", "").replace("\r", "")
-        print(f"🔍 Scraping trends for: {keyword}")
-        keyword = clean_keyword(keyword)
-        if not keyword:
-            raise ValueError("Keyword is empty after cleaning")
+        trends_url = (
+            "https://trends.google.com/trends/api/explore"
+            f"?hl=en-US&tz=360&req={{\"comparisonItem\":[{{\"keyword\":\"{keyword}\",\"geo\":\"\",\"time\":\"today 12-m\"}}],\"category\":0,\"property\":\"\"}}"
+        )
+        print(f"🧠 Widget URL: {trends_url}")
 
-        # STEP 1: Get widget config
-        trends_url = f"https://trends.google.com/trends/api/explore?hl=en-US&tz=360&req={{\"comparisonItem\":[{{\"keyword\":\"{keyword}\",\"geo\":\"\",\"time\":\"today 12-m\"}}],\"category\":0,\"property\":\"\"}}"
-        widget_res = requests.get(f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={trends_url}")
+        widget_res = requests.get(
+            f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={trends_url}"
+        )
+
         print(f"📥 Widget response: {widget_res.status_code}")
-        if widget_res.status_code != 200:
-            raise ValueError("Invalid widget response format")
 
-        cleaned_json = widget_res.text.replace(")]}',", "")
+        raw_text = widget_res.text.strip()
+
+        # Confirm prefix
+        if raw_text.startswith(")]}'"):
+            cleaned_json = raw_text[5:]  # Remove prefix and newline
+        else:
+            print("⚠️ Widget response missing expected prefix")
+            raise Exception("Invalid widget response format")
+
         widgets = json.loads(cleaned_json)
-
-        # STEP 2: Get TIMESERIES widget
         widget = next(w for w in widgets["widgets"] if w["id"] == "TIMESERIES")
         print(f"✅ Widget token: {widget['token']}")
 
-        # STEP 3: Fetch trend data
         multiline_url = (
-            f"https://trends.google.com/trends/api/widgetdata/multiline?hl=en-US&tz=360"
-            f"&req={json.dumps(widget['request'])}&token={widget['token']}&geo={widget['request']['geo']}"
+            "https://trends.google.com/trends/api/widgetdata/multiline"
+            f"?hl=en-US&tz=360&req={json.dumps(widget['request'])}"
+            f"&token={widget['token']}&geo={widget['request'].get('geo', '')}"
         )
-        multiline_res = requests.get(f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={multiline_url}")
+        print(f"📊 Data URL: {multiline_url}")
+
+        multiline_res = requests.get(
+            f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={multiline_url}"
+        )
         print(f"📥 Multiline response: {multiline_res.status_code}")
-        multiline_clean = multiline_res.text.replace(")]}',", "")
+
+        multiline_clean = multiline_res.text.strip()
+
+        if multiline_clean.startswith(")]}'"):
+            multiline_clean = multiline_clean[5:]
+
         trend_json = json.loads(multiline_clean)
 
         timeline_data = trend_json["default"]["timelineData"]
@@ -55,21 +68,13 @@ def scrape_google_trends(keyword):
             for entry in timeline_data
         ]
 
-        return {"keyword": keyword, "trend": trend}
+        return jsonify({"keyword": keyword, "trend": trend})
+
     except Exception as e:
         print(f"❌ Trend scraping error: {e}")
-        return None
-
-@app.route("/trend")
-def get_trend():
-    raw_keyword = request.args.get("keyword", "")
-    cleaned_keyword = raw_keyword.strip().replace("\n", "").replace("\r", "")
-    print(f"📥 Raw keyword: {raw_keyword} -> Cleaned: {cleaned_keyword}")
-    trend_data = scrape_google_trends(cleaned_keyword)
-    if trend_data:
-        return jsonify(trend_data)
-    else:
         return jsonify({"error": "Failed to fetch trend data"}), 500
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    port = int(os.environ.get("PORT", 8080))
+    print(f"🚀 Flask is running on port {port}")
+    app.run(host="0.0.0.0", port=port)
