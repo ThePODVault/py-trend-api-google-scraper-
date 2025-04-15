@@ -1,82 +1,70 @@
-import json
-import os
-import requests
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+import requests
+import json
+import os
 
 app = Flask(__name__)
 CORS(app)
 
-SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")
+SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")  # Set this in Railway as an environment variable
+
+def scrape_google_trends(keyword):
+    try:
+        print(f"🔍 Scraping trends for: {keyword}")
+
+        # STEP 1: Get widget config
+        explore_url = (
+            "https://trends.google.com/trends/api/explore?hl=en-US&tz=360"
+            f"&req={{\"comparisonItem\":[{{\"keyword\":\"{keyword}\",\"geo\":\"\",\"time\":\"today 12-m\"}}],\"category\":0,\"property\":\"\"}}"
+        )
+        explore_res = requests.get(
+            f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={explore_url}",
+            headers={"Accept": "application/json"},
+        )
+        print(f"📥 Widget response: {explore_res.status_code}")
+        if explore_res.status_code != 200:
+            raise Exception("Widget response not OK")
+
+        cleaned = explore_res.text.replace(")]}',", "", 1)
+        widgets = json.loads(cleaned)
+        widget = next(w for w in widgets["widgets"] if w["id"] == "TIMESERIES")
+        token = widget["token"]
+        print(f"✅ Widget token: {token}")
+
+        # STEP 2: Get trend data
+        data_url = (
+            "https://trends.google.com/trends/api/widgetdata/multiline?hl=en-US&tz=360"
+            f"&req={json.dumps(widget['request'])}&token={token}&geo="
+        )
+        data_res = requests.get(
+            f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={data_url}",
+            headers={"Accept": "application/json"},
+        )
+        print(f"📥 Data response: {data_res.status_code}")
+        if data_res.status_code != 200:
+            raise Exception("Data response not OK")
+
+        cleaned_data = data_res.text.replace(")]}',", "", 1)
+        timeline = json.loads(cleaned_data)["default"]["timelineData"]
+        trend = [{"date": t["formattedTime"], "interest": t["value"][0]} for t in timeline]
+
+        return trend
+    except Exception as e:
+        print(f"❌ Trend scraping error: {e}")
+        return None
 
 @app.route("/trend", methods=["GET"])
 def get_trend():
     keyword = request.args.get("keyword")
     if not keyword:
-        return jsonify({"error": "Missing keyword"}), 400
+        return jsonify({"error": "Missing 'keyword' parameter"}), 400
 
-    try:
-        print(f"🔍 Scraping trends for: {keyword}")
-
-        # Step 1: Get widget config
-        trends_url = (
-            f"https://trends.google.com/trends/api/explore?hl=en-US&tz=360&req="
-            f"{{\"comparisonItem\":[{{\"keyword\":\"{keyword}\",\"geo\":\"\",\"time\":\"today 12-m\"}}],\"category\":0,\"property\":\"\"}}"
-        )
-        print(f"🧠 Widget URL: {trends_url}")
-
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-        }
-        widget_res = requests.get(
-            f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={trends_url}",
-            headers=headers
-        )
-        print(f"📥 Widget response: {widget_res.status_code}")
-        print(f"📥 Raw widget text (first 500 chars):\n{widget_res.text[:500]}")
-
-        cleaned_json = widget_res.text.replace(")]}',", "").strip()
-        if not cleaned_json or cleaned_json.startswith("<"):
-            print("❌ Widget response is invalid or HTML")
-            return jsonify({"error": "Invalid response from Google Trends"}), 500
-
-        widgets = json.loads(cleaned_json)
-
-        # Step 2: Extract TIMESERIES widget
-        widget = next(w for w in widgets["widgets"] if w["id"] == "TIMESERIES")
-        token = widget["token"]
-        print(f"✅ Widget token: {token}")
-
-        multiline_url = (
-            "https://trends.google.com/trends/api/widgetdata/multiline?hl=en-US&tz=360"
-            f"&req={json.dumps(widget['request'])}&token={token}&geo="
-        )
-        print(f"📊 Data URL: {multiline_url}")
-
-        multiline_res = requests.get(
-            f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={multiline_url}",
-            headers=headers
-        )
-        print(f"📥 Multiline response: {multiline_res.status_code}")
-        cleaned_multiline = multiline_res.text.replace(")]}',", "").strip()
-
-        if not cleaned_multiline or cleaned_multiline.startswith("<"):
-            print("❌ Multiline response is invalid or HTML")
-            return jsonify({"error": "Invalid trend data"}), 500
-
-        trend_json = json.loads(cleaned_multiline)
-        timeline_data = trend_json["default"]["timelineData"]
-
-        trend = [
-            {"date": point["formattedTime"], "interest": point["value"][0]}
-            for point in timeline_data
-        ]
-
-        return jsonify({"keyword": keyword, "trend": trend})
-
-    except Exception as e:
-        print(f"❌ Trend scraping error: {e}")
+    trend_data = scrape_google_trends(keyword)
+    if not trend_data:
         return jsonify({"error": "Failed to fetch trend data"}), 500
+
+    return jsonify({"keyword": keyword, "trend": trend_data})
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
