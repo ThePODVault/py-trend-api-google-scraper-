@@ -16,21 +16,12 @@ def scrape_google_trends(keyword):
         widget_res = requests.get(f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={trends_url}")
         print(f"📥 Widget response: {widget_res.status_code}")
 
-        raw_text = widget_res.text
-        prefix_index = raw_text.find(")]}',")
-        if prefix_index != -1:
-            cleaned_json = raw_text[prefix_index + len(")]}',"):].strip()
+        raw_text = widget_res.text.strip()
+        if raw_text.startswith(")]}',"):
+            cleaned_json = raw_text[5:].strip()
         else:
-            print("⚠️ Widget response missing expected prefix")
+            print("⚠️ Widget response did not start with expected prefix")
             print("🔧 Raw widget response (first 500):", raw_text[:500])
-            cleaned_json = raw_text.strip()
-
-        if not cleaned_json:
-            print("❌ Empty widget response.")
-            return None
-        if "<html" in cleaned_json.lower():
-            print("❌ Google Trends returned HTML (block page for widgets):")
-            print(cleaned_json[:1000])
             return None
 
         print("🔧 Cleaned widget preview:", cleaned_json[:300])
@@ -49,21 +40,12 @@ def scrape_google_trends(keyword):
         multiline_res = requests.get(f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={multiline_url}")
         print(f"📥 Multiline response: {multiline_res.status_code}")
 
-        raw_multiline = multiline_res.text
-        prefix_index = raw_multiline.find(")]}',")
-        if prefix_index != -1:
-            multiline_clean = raw_multiline[prefix_index + len(")]}',"):].strip()
+        raw_multiline = multiline_res.text.strip()
+        if raw_multiline.startswith(")]}',"):
+            multiline_clean = raw_multiline[5:].strip()
         else:
-            print("⚠️ Multiline response missing expected prefix")
+            print("⚠️ Multiline response did not start with expected prefix")
             print("🔧 Raw multiline response (first 500):", raw_multiline[:500])
-            multiline_clean = raw_multiline.strip()
-
-        if not multiline_clean:
-            print("❌ Empty multiline response.")
-            return None
-        if "<html" in multiline_clean.lower():
-            print("❌ Google Trends returned HTML (block page for multiline):")
-            print(multiline_clean[:1000])
             return None
 
         print("🔧 Cleaned multiline preview:", multiline_clean[:300])
