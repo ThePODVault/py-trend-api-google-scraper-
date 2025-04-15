@@ -1,3 +1,11 @@
+from flask import Flask, request, jsonify
+import requests
+import json
+import os
+
+app = Flask(__name__)
+SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")
+
 def scrape_google_trends(keyword):
     try:
         print(f"🔍 Scraping trends for: {keyword}")
@@ -35,3 +43,20 @@ def scrape_google_trends(keyword):
     except Exception as e:
         print(f"❌ Trend scraping error: {e}")
         return None
+
+@app.route("/trend", methods=["GET"])
+def get_trend():
+    keyword = request.args.get("keyword")
+    if not keyword:
+        return jsonify({"error": "Missing 'keyword' parameter"}), 400
+
+    trend = scrape_google_trends(keyword)
+    if not trend:
+        return jsonify({"error": "Failed to fetch trend data"}), 500
+
+    return jsonify({"keyword": keyword, "trend": trend})
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    print(f"🚀 Flask is running on port {port}")
+    app.run(host="0.0.0.0", port=port)
