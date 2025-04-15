@@ -15,7 +15,20 @@ def scrape_google_trends(keyword):
         print(f"🧠 Widget URL: {trends_url}")
         widget_res = requests.get(f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={trends_url}")
         print(f"📥 Widget response: {widget_res.status_code}")
-        cleaned_json = widget_res.text.replace(")]}',", "")
+
+        cleaned_json = widget_res.text.replace(")]}',", "").strip()
+
+        if not cleaned_json:
+            print("❌ Empty widget response.")
+            return None
+
+        if "<html" in cleaned_json.lower():
+            print("❌ Google Trends returned HTML (possibly a block page):")
+            print(cleaned_json[:1000])  # only preview
+            return None
+
+        print("🔧 Raw widget preview:", cleaned_json[:300])
+
         widgets = json.loads(cleaned_json)
 
         # STEP 2: Get TIMESERIES widget
@@ -30,16 +43,28 @@ def scrape_google_trends(keyword):
         print(f"📊 Data URL: {multiline_url}")
         multiline_res = requests.get(f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={multiline_url}")
         print(f"📥 Multiline response: {multiline_res.status_code}")
-        multiline_clean = multiline_res.text.replace(")]}',", "")
-        trend_json = json.loads(multiline_clean)
 
+        multiline_clean = multiline_res.text.replace(")]}',", "").strip()
+
+        if not multiline_clean:
+            print("❌ Empty multiline response.")
+            return None
+
+        if "<html" in multiline_clean.lower():
+            print("❌ Google Trends returned HTML (block page for multiline).")
+            print(multiline_clean[:1000])
+            return None
+
+        trend_json = json.loads(multiline_clean)
         timeline_data = trend_json["default"]["timelineData"]
+
         trend = [
             {"date": entry["formattedTime"], "interest": entry["value"][0]}
             for entry in timeline_data
         ]
 
         return trend
+
     except Exception as e:
         print(f"❌ Trend scraping error: {e}")
         return None
