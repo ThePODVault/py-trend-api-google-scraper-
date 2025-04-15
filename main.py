@@ -35,9 +35,12 @@ def scrape_google_trends(keyword):
         print(f"✅ Widget token: {widget['token']}")
 
         # STEP 3: Fetch trend data
+        geo = widget['request'].get('geo', '')
+        geo_param = geo if isinstance(geo, str) else ''
+
         multiline_url = (
             f"https://trends.google.com/trends/api/widgetdata/multiline?hl=en-US&tz=360"
-            f"&req={json.dumps(widget['request'])}&token={widget['token']}&geo={widget['request']['geo']}"
+            f"&req={json.dumps(widget['request'])}&token={widget['token']}&geo={geo_param}"
         )
         print(f"📊 Data URL: {multiline_url}")
         multiline_res = requests.get(f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={multiline_url}")
