@@ -16,7 +16,12 @@ def scrape_google_trends(keyword):
         widget_res = requests.get(f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={trends_url}")
         print(f"📥 Widget response: {widget_res.status_code}")
 
-        cleaned_json = widget_res.text.replace(")]}',", "").strip()
+        raw_text = widget_res.text.strip()
+        if raw_text.startswith(")]}',"):
+            cleaned_json = raw_text[len(")]}',"):].strip()
+        else:
+            print("⚠️ Widget response missing prefix")
+            cleaned_json = raw_text
 
         if not cleaned_json:
             print("❌ Empty widget response.")
@@ -42,7 +47,12 @@ def scrape_google_trends(keyword):
         multiline_res = requests.get(f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={multiline_url}")
         print(f"📥 Multiline response: {multiline_res.status_code}")
 
-        multiline_clean = multiline_res.text.replace(")]}',", "").strip()
+        raw_multiline = multiline_res.text.strip()
+        if raw_multiline.startswith(")]}',"):
+            multiline_clean = raw_multiline[len(")]}',"):].strip()
+        else:
+            print("⚠️ Multiline response missing prefix")
+            multiline_clean = raw_multiline
 
         if not multiline_clean:
             print("❌ Empty multiline response.")
