@@ -8,7 +8,7 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")
+SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")
 
 def clean_keyword(keyword):
     cleaned = re.sub(r'[^\w\s]', '', keyword.lower())
@@ -24,54 +24,56 @@ def scrape_google_trends(keyword):
         if not keyword:
             raise ValueError("Keyword is empty after cleaning")
 
-        # Step 1: Get widget config
-        trends_url = (
-            "https://trends.google.com/trends/api/explore"
-            f"?hl=en-US&tz=360&req={json.dumps({'comparisonItem': [{'keyword': keyword, 'geo': '', 'time': 'today 12-m'}], 'category': 0, 'property': ''})}"
+        print(f"\n🔍 Scraping trends for: {keyword}\n")
+
+        # Step 1: Fetch the widget config
+        widget_url = (
+            f"https://trends.google.com/trends/api/explore"
+            f"?hl=en-US&tz=360&req={{\"comparisonItem\": [{{\"keyword\": \"{keyword}\", \"geo\": \"\", \"time\": \"today 12-m\"}}], \"category\": 0, \"property\": \"\"}}"
         )
-        print(f"\n🔍 Scraping trends for: {keyword}")
-        print(f"\n🧠 Widget URL: {trends_url}\n")
+        print(f"\n🧠 Widget URL: {widget_url}\n")
 
         widget_res = requests.get(
-            f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={trends_url}",
-            timeout=20
+            f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={widget_url}"
         )
-
         print(f"📥 Widget response: {widget_res.status_code}")
-        rawText = widget_res.text.strip()
-        print("📃 Widget response body preview:", rawText[:300])
 
-        if not rawText.startswith(")]}'"):
-            print("⚠️ Unexpected widget body format. Dumping full content below:\n")
-            print(rawText)
+        if widget_res.status_code != 200:
+            raise ValueError("Invalid widget response status")
+
+        cleaned_text = widget_res.text.replace(")]}',", "").strip()
+        if not cleaned_text.startswith("{"):
+            print(f"\n📃 Widget response body preview: {widget_res.text[:300]}")
             raise ValueError("Invalid widget response format")
 
-        cleaned_json = rawText[5:]  # Removes the prefix ")]}'\n"
-        widgets = json.loads(cleaned_json)
-
+        widgets = json.loads(cleaned_text)
         widget = next(w for w in widgets["widgets"] if w["id"] == "TIMESERIES")
         print(f"✅ Widget token: {widget['token']}")
 
+        # Step 2: Build multiline data request
+        geo_value = widget['request'].get('geo', '')
+        geo_str = geo_value if isinstance(geo_value, str) else ''
         multiline_url = (
             "https://trends.google.com/trends/api/widgetdata/multiline"
             f"?hl=en-US&tz=360&req={json.dumps(widget['request'])}"
-            f"&token={widget['token']}&geo={widget['request']['geo']}"
+            f"&token={widget['token']}&geo={geo_str}"
         )
 
         multiline_res = requests.get(
-            f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={multiline_url}",
-            timeout=20
+            f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={multiline_url}"
         )
         print(f"📥 Multiline response: {multiline_res.status_code}")
-        multiline_clean = multiline_res.text.replace(")]}',", "").strip()
-        trend_json = json.loads(multiline_clean)
+
+        cleaned_data = multiline_res.text.replace(")]}',", "")
+        trend_json = json.loads(cleaned_data)
 
         timeline_data = trend_json["default"]["timelineData"]
-        trend = [{"date": entry["formattedTime"], "interest": entry["value"][0]} for entry in timeline_data]
+        trend = [{"date": point["formattedTime"], "interest": point["value"][0]} for point in timeline_data]
 
         return {"keyword": keyword, "trend": trend}
+
     except Exception as e:
-        print(f"❌ Trend scraping error: {e}")
+        print(f"\n❌ Trend scraping error: {e}")
         return None
 
 @app.route("/trend")
