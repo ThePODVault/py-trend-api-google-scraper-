@@ -1,3 +1,4 @@
 Flask
 flask-cors
 pytrends
+urllib3<2.0
