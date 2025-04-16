@@ -26,10 +26,10 @@ def scrape_google_trends(keyword):
 
         print(f"\n🔍 Scraping trends for: {keyword}\n")
 
-        # Step 1: Fetch the widget config
+        # Step 1: Get explore widgets
         widget_url = (
             f"https://trends.google.com/trends/api/explore"
-            f"?hl=en-US&tz=360&req={{\"comparisonItem\": [{{\"keyword\": \"{keyword}\", \"geo\": \"\", \"time\": \"today 12-m\"}}], \"category\": 0, \"property\": \"\"}}"
+            f"?hl=en-US&tz=360&req={{\"comparisonItem\":[{{\"keyword\":\"{keyword}\",\"geo\":\"\",\"time\":\"today 12-m\"}}],\"category\":0,\"property\":\"\"}}"
         )
         print(f"\n🧠 Widget URL: {widget_url}\n")
 
@@ -37,9 +37,6 @@ def scrape_google_trends(keyword):
             f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={widget_url}"
         )
         print(f"📥 Widget response: {widget_res.status_code}")
-
-        if widget_res.status_code != 200:
-            raise ValueError("Invalid widget response status")
 
         cleaned_text = widget_res.text.replace(")]}',", "").strip()
         if not cleaned_text.startswith("{"):
@@ -50,13 +47,11 @@ def scrape_google_trends(keyword):
         widget = next(w for w in widgets["widgets"] if w["id"] == "TIMESERIES")
         print(f"✅ Widget token: {widget['token']}")
 
-        # Step 2: Build multiline data request
-        geo_value = widget['request'].get('geo', '')
-        geo_str = geo_value if isinstance(geo_value, str) else ''
+        # Step 2: Build multiline request using only req + token
         multiline_url = (
             "https://trends.google.com/trends/api/widgetdata/multiline"
             f"?hl=en-US&tz=360&req={json.dumps(widget['request'])}"
-            f"&token={widget['token']}&geo={geo_str}"
+            f"&token={widget['token']}"
         )
 
         multiline_res = requests.get(
