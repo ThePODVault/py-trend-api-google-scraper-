@@ -8,7 +8,7 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY")
+SCRAPER_API_KEY = os.environ.get("SCRAPER_API_KEY")
 
 def clean_keyword(keyword):
     cleaned = re.sub(r'[^\w\s]', '', keyword.lower())
@@ -24,21 +24,27 @@ def scrape_google_trends(keyword):
         if not keyword:
             raise ValueError("Keyword is empty after cleaning")
 
-        print(f"🔍 Scraping trends for: {keyword}")
-
+        # Step 1: Get widget config
         trends_url = (
             "https://trends.google.com/trends/api/explore"
-            f"?hl=en-US&tz=360&req={{\"comparisonItem\": [{{\"keyword\": \"{keyword}\", \"geo\": \"\", \"time\": \"today 12-m\"}}], \"category\": 0, \"property\": \"\"}}"
+            f"?hl=en-US&tz=360&req={json.dumps({'comparisonItem': [{'keyword': keyword, 'geo': '', 'time': 'today 12-m'}], 'category': 0, 'property': ''})}"
         )
-        print(f"\n\n🧠 Widget URL: {trends_url}\n")
+        print(f"\n🔍 Scraping trends for: {keyword}")
+        print(f"\n🧠 Widget URL: {trends_url}\n")
 
-        proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={trends_url}"
-        widget_res = requests.get(proxy_url, timeout=20)
+        widget_res = requests.get(
+            f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={trends_url}",
+            timeout=20
+        )
 
         print(f"📥 Widget response: {widget_res.status_code}")
 
         rawText = widget_res.text
+        print("📃 Widget response body preview:", rawText[:300])
+
         if not rawText.startswith(")]}',"):
+            print("⚠️ Unexpected widget body format. Dumping full content below:\n")
+            print(rawText)
             raise ValueError("Invalid widget response format")
 
         cleaned_json = rawText.replace(")]}',", "")
@@ -49,18 +55,22 @@ def scrape_google_trends(keyword):
 
         multiline_url = (
             "https://trends.google.com/trends/api/widgetdata/multiline"
-            f"?hl=en-US&tz=360&req={json.dumps(widget['request'])}&token={widget['token']}&geo={widget['request']['geo']}"
+            f"?hl=en-US&tz=360&req={json.dumps(widget['request'])}"
+            f"&token={widget['token']}&geo={widget['request']['geo']}"
         )
-        multiline_proxy = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={multiline_url}"
-        multiline_res = requests.get(multiline_proxy, timeout=20)
+
+        multiline_res = requests.get(
+            f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={multiline_url}",
+            timeout=20
+        )
+
+        print(f"📥 Multiline response: {multiline_res.status_code}")
+
         multiline_clean = multiline_res.text.replace(")]}',", "")
         trend_json = json.loads(multiline_clean)
 
         timeline_data = trend_json["default"]["timelineData"]
-        trend = [
-            {"date": entry["formattedTime"], "interest": entry["value"][0]}
-            for entry in timeline_data
-        ]
+        trend = [{"date": entry["formattedTime"], "interest": entry["value"][0]} for entry in timeline_data]
 
         return {"keyword": keyword, "trend": trend}
     except Exception as e:
