@@ -44,7 +44,10 @@ def fetch_trend_data(keyword):
         if data.empty:
             raise ValueError("Google Trends returned empty data")
 
-        trend = [{"date": str(row[0].date()), "interest": int(row[1])} for row in data[[keyword]].itertuples()]
+        # Resample to monthly average
+        monthly_data = data[[keyword]].resample('M').mean().round(0).astype(int)
+
+        trend = [{"date": str(index.date()), "interest": int(row[keyword])} for index, row in monthly_data.iterrows()]
         return {"keyword": keyword, "trend": trend}
 
     except Exception as e:
