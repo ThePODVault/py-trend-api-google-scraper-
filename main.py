@@ -8,7 +8,6 @@ from random import choice
 app = Flask(__name__)
 CORS(app)
 
-# Optional list of rotating User-Agents
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15",
@@ -33,11 +32,11 @@ def fetch_trend_data(keyword):
             tz=360,
             retries=3,
             backoff_factor=0.5,
-            requests_args={'headers': {'User-Agent': user_agent}}
+            requests_args={'headers': {'User-Agent': user_agent}, 'timeout': 10}
         )
 
         pytrends.build_payload([keyword], cat=0, timeframe='today 12-m', geo='', gprop='')
-        time.sleep(1)  # optional sleep for safety
+        time.sleep(1)
 
         data = pytrends.interest_over_time()
 
