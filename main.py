@@ -27,12 +27,13 @@ def fetch_trend_data(keyword):
     try:
         user_agent = choice(USER_AGENTS)
         print(f"🔍 Scraping trends for: {keyword}\n")
+
         pytrends = TrendReq(
             hl='en-US',
             tz=360,
             retries=3,
             backoff_factor=0.5,
-            requests_args={'headers': {'User-Agent': user_agent}, 'timeout': 10}
+            requests_args={'headers': {'User-Agent': user_agent}}
         )
 
         pytrends.build_payload([keyword], cat=0, timeframe='today 12-m', geo='', gprop='')
