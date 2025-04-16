@@ -12,23 +12,26 @@ CORS(app)
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Windows NT 10.0; rv:109.0) Gecko/20100101 Firefox/117.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_6_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.5005.115 Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 12; Pixel 6 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.5060.70 Mobile Safari/537.36",
+    "Mozilla/5.0 (iPad; CPU OS 15_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/106.0.5249.119 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/105.0.5195.52 Safari/537.36"
 ]
 
 def clean_phrases(raw_title):
     print(f"📥 Raw keyword: {raw_title}")
-    split_by_comma = re.split(r"[,\-]", raw_title.lower())
+    raw_phrases = raw_title.lower().split(",")[:4]
     phrases = []
-    for part in split_by_comma:
-        sub_parts = part.strip().split()
-        for i in range(len(sub_parts)):
-            for j in range(i+1, min(len(sub_parts)+1, i+4)):  # generate 2-3 word phrases
-                phrase = " ".join(sub_parts[i:j])
-                cleaned = re.sub(r"[^\w\s]", "", phrase).strip()
-                if len(cleaned.split()) >= 2 and cleaned not in phrases:
-                    phrases.append(cleaned)
-    print(f"🔍 Final phrases to analyze: {phrases[:10]}")
-    return phrases[:10]  # Limit to top 10 phrases for performance
+    for phrase in raw_phrases:
+        cleaned = re.sub(r"[^\w\s]", "", phrase).strip()
+        if cleaned:
+            phrases.append(cleaned)
+    print(f"🔍 Phrases to analyze: {phrases}\n")
+    return phrases
 
 def fetch_single_phrase_trend(phrase, user_agent):
     pytrends = TrendReq(
@@ -48,15 +51,14 @@ def fetch_single_phrase_trend(phrase, user_agent):
 
 def fetch_trend_data(phrases):
     try:
-        user_agent = choice(USER_AGENTS)
         monthly_data = []
 
         for phrase in phrases:
+            user_agent = choice(USER_AGENTS)  # ✅ rotate per phrase
             try:
                 print(f"📊 Fetching trend for: {phrase}")
                 trend_df = fetch_single_phrase_trend(phrase, user_agent)
                 monthly_data.append(trend_df)
-                time.sleep(1)  # small delay to avoid rate limits
             except Exception as inner_e:
                 print(f"⚠️ Skipped '{phrase}': {inner_e}")
                 continue
