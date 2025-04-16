@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from pytrends.request import TrendReq
+import pandas as pd
 import re
 import time
 from random import choice
@@ -14,20 +15,20 @@ USER_AGENTS = [
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36"
 ]
 
-def clean_keyword(keyword):
-    print(f"📥 Raw keyword: {keyword}")
-    cleaned = re.sub(r'[^\w\s]', '', keyword.lower()).strip()
-    parts = cleaned.split()
-    filtered = [p for p in parts if len(p) > 2]
-    cleaned_keyword = ' '.join(filtered[:4])
-    print(f" -> Cleaned: {cleaned_keyword}\n")
-    return cleaned_keyword
+def clean_phrases(raw_title):
+    print(f"📥 Raw keyword: {raw_title}")
+    raw_phrases = raw_title.lower().split(",")[:4]
+    phrases = []
+    for phrase in raw_phrases:
+        cleaned = re.sub(r"[^\w\s]", "", phrase).strip()
+        if cleaned:
+            phrases.append(cleaned)
+    print(f"🔍 Phrases to analyze: {phrases}\n")
+    return phrases
 
-def fetch_trend_data(keyword):
+def fetch_trend_data(phrases):
     try:
         user_agent = choice(USER_AGENTS)
-        print(f"🔍 Scraping trends for: {keyword}\n")
-
         pytrends = TrendReq(
             hl='en-US',
             tz=360,
@@ -36,19 +37,23 @@ def fetch_trend_data(keyword):
             requests_args={'headers': {'User-Agent': user_agent}}
         )
 
-        pytrends.build_payload([keyword], cat=0, timeframe='today 12-m', geo='', gprop='')
+        pytrends.build_payload(phrases, cat=0, timeframe='today 12-m', geo='', gprop='')
         time.sleep(1)
-
-        data = pytrends.interest_over_time()
-
-        if data.empty:
+        df = pytrends.interest_over_time()
+        if df.empty:
             raise ValueError("Google Trends returned empty data")
 
-        # Resample to monthly average
-        monthly_data = data[[keyword]].resample('M').mean().round(0).astype(int)
+        # Drop 'isPartial' column if it exists
+        df = df.drop(columns=["isPartial"], errors="ignore")
 
-        trend = [{"date": str(index.date()), "interest": int(row[keyword])} for index, row in monthly_data.iterrows()]
-        return {"keyword": keyword, "trend": trend}
+        # Resample weekly trend data to monthly average
+        monthly_df = df.resample('M').mean().round(0)
+
+        # Calculate average interest across phrases
+        monthly_df["average"] = monthly_df.mean(axis=1).astype(int)
+
+        trend = [{"date": str(index.date()), "interest": row["average"]} for index, row in monthly_df.iterrows()]
+        return {"keyword": ", ".join(phrases), "trend": trend}
 
     except Exception as e:
         print(f"❌ Trend scraping error: {e}\n")
@@ -56,9 +61,9 @@ def fetch_trend_data(keyword):
 
 @app.route("/trend")
 def get_trend():
-    keyword = request.args.get("keyword", "")
-    keyword = clean_keyword(keyword)
-    trend_data = fetch_trend_data(keyword)
+    raw_title = request.args.get("keyword", "")
+    phrases = clean_phrases(raw_title)
+    trend_data = fetch_trend_data(phrases)
     if trend_data:
         return jsonify(trend_data)
     else:
