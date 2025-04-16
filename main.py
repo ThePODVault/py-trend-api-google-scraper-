@@ -38,16 +38,15 @@ def scrape_google_trends(keyword):
         )
 
         print(f"📥 Widget response: {widget_res.status_code}")
-
-        rawText = widget_res.text
+        rawText = widget_res.text.strip()
         print("📃 Widget response body preview:", rawText[:300])
 
-        if not rawText.startswith(")]}',"):
+        if not rawText.startswith(")]}'"):
             print("⚠️ Unexpected widget body format. Dumping full content below:\n")
             print(rawText)
             raise ValueError("Invalid widget response format")
 
-        cleaned_json = rawText.replace(")]}',", "")
+        cleaned_json = rawText[5:]  # Removes the prefix ")]}'\n"
         widgets = json.loads(cleaned_json)
 
         widget = next(w for w in widgets["widgets"] if w["id"] == "TIMESERIES")
@@ -63,10 +62,8 @@ def scrape_google_trends(keyword):
             f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={multiline_url}",
             timeout=20
         )
-
         print(f"📥 Multiline response: {multiline_res.status_code}")
-
-        multiline_clean = multiline_res.text.replace(")]}',", "")
+        multiline_clean = multiline_res.text.replace(")]}',", "").strip()
         trend_json = json.loads(multiline_clean)
 
         timeline_data = trend_json["default"]["timelineData"]
