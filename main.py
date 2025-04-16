@@ -26,7 +26,6 @@ def scrape_google_trends(keyword):
 
         print(f"\n🔍 Scraping trends for: {keyword}\n")
 
-        # Step 1: Get explore widgets
         widget_url = (
             f"https://trends.google.com/trends/api/explore"
             f"?hl=en-US&tz=360&req={{\"comparisonItem\":[{{\"keyword\":\"{keyword}\",\"geo\":\"\",\"time\":\"today 12-m\"}}],\"category\":0,\"property\":\"\"}}"
@@ -47,11 +46,10 @@ def scrape_google_trends(keyword):
         widget = next(w for w in widgets["widgets"] if w["id"] == "TIMESERIES")
         print(f"✅ Widget token: {widget['token']}")
 
-        # Step 2: Build multiline request using only req + token
+        # Build multiline request — don't append geo
         multiline_url = (
             "https://trends.google.com/trends/api/widgetdata/multiline"
-            f"?hl=en-US&tz=360&req={json.dumps(widget['request'])}"
-            f"&token={widget['token']}"
+            f"?hl=en-US&tz=360&req={json.dumps(widget['request'])}&token={widget['token']}"
         )
 
         multiline_res = requests.get(
@@ -82,3 +80,4 @@ def get_trend():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
+
