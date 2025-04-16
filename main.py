@@ -3,11 +3,12 @@ import requests
 import json
 import re
 from flask_cors import CORS
+import urllib.parse
 
 app = Flask(__name__)
 CORS(app)
 
-SCRAPER_API_KEY = "your_scraperapi_key_here"  # Replace with your actual ScraperAPI key
+SCRAPER_API_KEY = "your_scraperapi_key_here"  # Set this in Railway ENV
 
 def clean_keyword(keyword):
     cleaned = re.sub(r'[^\w\s]', '', keyword.lower())
@@ -20,51 +21,55 @@ def scrape_google_trends(keyword):
         print(f"📥 Raw keyword: {keyword}\n")
         keyword = clean_keyword(keyword)
         print(f" -> Cleaned: {keyword}\n")
-
         if not keyword:
             raise ValueError("Keyword is empty after cleaning")
 
         trends_url = (
-            f"https://trends.google.com/trends/api/explore?hl=en-US&tz=360"
-            f"&req={{\"comparisonItem\":[{{\"keyword\":\"{keyword}\",\"geo\":\"\",\"time\":\"today 12-m\"}}],\"category\":0,\"property\":\"\"}}"
+            "https://trends.google.com/trends/api/explore?hl=en-US&tz=360&req=" +
+            urllib.parse.quote(json.dumps({
+                "comparisonItem": [{"keyword": keyword, "geo": "", "time": "today 12-m"}],
+                "category": 0,
+                "property": ""
+            }))
         )
         print(f"\n🔍 Scraping trends for: {keyword}\n")
         print(f"\n🧠 Widget URL: {trends_url}\n")
 
-        widget_res = requests.get(
-            f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={trends_url}",
-            timeout=20
-        )
+        headers = {
+            "User-Agent": "Mozilla/5.0",
+            "Accept-Language": "en-US,en;q=0.9"
+        }
 
+        proxy_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={urllib.parse.quote(trends_url)}"
+        widget_res = requests.get(proxy_url, headers=headers, timeout=20)
         print(f"\n📥 Widget response: {widget_res.status_code}\n")
 
         if widget_res.status_code != 200:
             raise ValueError("Invalid widget response")
 
-        # ✅ Updated prefix stripper with regex
-        cleaned_json = re.sub(r"^\)\]\}'\s*", "", widget_res.text.strip())
+        if not widget_res.text.startswith(")]}'"):
+            print(f"\n📃 Widget response body preview: {widget_res.text[:300]}\n")
+            raise ValueError("Invalid widget response format")
 
-        # Optional: log a preview
-        print("\n📃 Widget response body preview:", cleaned_json[:300], "\n")
+        json_str = widget_res.text.replace(")]}',", "", 1)
+        widgets = json.loads(json_str)
 
-        widgets = json.loads(cleaned_json)
-
-        # Find the TIMESERIES widget
         widget = next(w for w in widgets["widgets"] if w["id"] == "TIMESERIES")
         print(f"\n✅ Widget token: {widget['token']}\n")
 
         multiline_url = (
-            f"https://trends.google.com/trends/api/widgetdata/multiline?hl=en-US&tz=360"
-            f"&req={json.dumps(widget['request'])}&token={widget['token']}&geo={widget['request'].get('geo', '')}"
+            "https://trends.google.com/trends/api/widgetdata/multiline?hl=en-US&tz=360&req=" +
+            urllib.parse.quote(json.dumps(widget["request"])) +
+            f"&token={widget['token']}"
         )
-
-        multiline_res = requests.get(
-            f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={multiline_url}",
-            timeout=20
-        )
+        multiline_proxy = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={urllib.parse.quote(multiline_url)}"
+        multiline_res = requests.get(multiline_proxy, headers=headers, timeout=20)
         print(f"\n📥 Multiline response: {multiline_res.status_code}\n")
 
-        multiline_clean = re.sub(r"^\)\]\}'\s*", "", multiline_res.text.strip())
+        if multiline_res.status_code != 200 or not multiline_res.text.startswith(")]}'"):
+            raise ValueError("Invalid multiline trend response")
+
+        multiline_clean = multiline_res.text.replace(")]}',", "", 1)
         trend_json = json.loads(multiline_clean)
 
         timeline_data = trend_json["default"]["timelineData"]
@@ -74,6 +79,7 @@ def scrape_google_trends(keyword):
         ]
 
         return {"keyword": keyword, "trend": trend}
+
     except Exception as e:
         print(f"\n❌ Trend scraping error: {e}\n")
         return None
