@@ -17,42 +17,58 @@ USER_AGENTS = [
 
 def clean_phrases(raw_title):
     print(f"📥 Raw keyword: {raw_title}")
-    raw_phrases = raw_title.lower().split(",")[:4]
+    split_by_comma = re.split(r"[,\-]", raw_title.lower())
     phrases = []
-    for phrase in raw_phrases:
-        cleaned = re.sub(r"[^\w\s]", "", phrase).strip()
-        if cleaned:
-            phrases.append(cleaned)
-    print(f"🔍 Phrases to analyze: {phrases}\n")
-    return phrases
+    for part in split_by_comma:
+        sub_parts = part.strip().split()
+        for i in range(len(sub_parts)):
+            for j in range(i+1, min(len(sub_parts)+1, i+4)):  # generate 2-3 word phrases
+                phrase = " ".join(sub_parts[i:j])
+                cleaned = re.sub(r"[^\w\s]", "", phrase).strip()
+                if len(cleaned.split()) >= 2 and cleaned not in phrases:
+                    phrases.append(cleaned)
+    print(f"🔍 Final phrases to analyze: {phrases[:10]}")
+    return phrases[:10]  # Limit to top 10 phrases for performance
+
+def fetch_single_phrase_trend(phrase, user_agent):
+    pytrends = TrendReq(
+        hl='en-US',
+        tz=360,
+        retries=3,
+        backoff_factor=0.5,
+        requests_args={'headers': {'User-Agent': user_agent}}
+    )
+    pytrends.build_payload([phrase], cat=0, timeframe='today 12-m', geo='', gprop='')
+    df = pytrends.interest_over_time()
+    if df.empty:
+        raise ValueError(f"No data for phrase: {phrase}")
+    df = df.drop(columns=["isPartial"], errors="ignore")
+    monthly = df.resample('M').mean().round(0)
+    return monthly.rename(columns={phrase: "interest"})
 
 def fetch_trend_data(phrases):
     try:
         user_agent = choice(USER_AGENTS)
-        pytrends = TrendReq(
-            hl='en-US',
-            tz=360,
-            retries=3,
-            backoff_factor=0.5,
-            requests_args={'headers': {'User-Agent': user_agent}}
-        )
+        monthly_data = []
 
-        pytrends.build_payload(phrases, cat=0, timeframe='today 12-m', geo='', gprop='')
-        time.sleep(1)
-        df = pytrends.interest_over_time()
-        if df.empty:
-            raise ValueError("Google Trends returned empty data")
+        for phrase in phrases:
+            try:
+                print(f"📊 Fetching trend for: {phrase}")
+                trend_df = fetch_single_phrase_trend(phrase, user_agent)
+                monthly_data.append(trend_df)
+                time.sleep(1)  # small delay to avoid rate limits
+            except Exception as inner_e:
+                print(f"⚠️ Skipped '{phrase}': {inner_e}")
+                continue
 
-        # Drop 'isPartial' column if it exists
-        df = df.drop(columns=["isPartial"], errors="ignore")
+        if not monthly_data:
+            raise ValueError("No trend data was returned for any keyword")
 
-        # Resample weekly trend data to monthly average
-        monthly_df = df.resample('M').mean().round(0)
+        combined = pd.concat(monthly_data, axis=1)
+        combined = combined.fillna(0)
+        combined["average"] = combined.mean(axis=1).astype(int)
 
-        # Calculate average interest across phrases
-        monthly_df["average"] = monthly_df.mean(axis=1).astype(int)
-
-        trend = [{"date": str(index.date()), "interest": row["average"]} for index, row in monthly_df.iterrows()]
+        trend = [{"date": str(index.date()), "interest": row["average"]} for index, row in combined.iterrows()]
         return {"keyword": ", ".join(phrases), "trend": trend}
 
     except Exception as e:
