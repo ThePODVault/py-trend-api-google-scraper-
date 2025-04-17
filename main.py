@@ -6,7 +6,7 @@ import re
 import json
 from random import choice
 import os
-import threading
+from concurrent.futures import ThreadPoolExecutor
 
 app = Flask(__name__)
 CORS(app)
@@ -14,7 +14,7 @@ CORS(app)
 SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY") or "your_scraperapi_key_here"
 TREND_CACHE_FILE = "trend_cache.json"
 
-# Load user agents from file
+# Load user agents
 def load_user_agents(file_path="user_agents.json"):
     try:
         with open(file_path, "r") as f:
@@ -29,13 +29,13 @@ recent_agents = []
 # Load trend cache
 try:
     with open(TREND_CACHE_FILE, "r") as f:
-        TREND_CACHE = json.load(f)
+        trend_cache = json.load(f)
 except:
-    TREND_CACHE = {}
+    trend_cache = {}
 
-def save_cache():
+def save_trend_cache():
     with open(TREND_CACHE_FILE, "w") as f:
-        json.dump(TREND_CACHE, f, indent=2)
+        json.dump(trend_cache, f)
 
 def get_unique_user_agent():
     global recent_agents
@@ -51,7 +51,7 @@ def get_unique_user_agent():
 
 def clean_phrases(raw_title):
     print(f"📥 Raw keyword: {raw_title}")
-    raw_phrases = raw_title.lower().split(",")[:3]  # ✅ Use top 3 phrases
+    raw_phrases = raw_title.lower().split(",")[:4]
     phrases = []
     for phrase in raw_phrases:
         cleaned = re.sub(r"[^\w\s]", "", phrase).strip()
@@ -66,6 +66,13 @@ def get_scraperapi_proxy():
     }
 
 def fetch_single_phrase_trend(phrase, user_agent, retries=3):
+    if phrase in trend_cache:
+        print(f"⚡ Using cached trend for '{phrase}'")
+        df = pd.DataFrame(trend_cache[phrase])
+        df["date"] = pd.to_datetime(df["date"])
+        df.set_index("date", inplace=True)
+        return df.rename(columns={"interest": "interest"})
+
     for attempt in range(retries):
         try:
             pytrends = TrendReq(
@@ -75,7 +82,8 @@ def fetch_single_phrase_trend(phrase, user_agent, retries=3):
                 backoff_factor=0.5,
                 requests_args={
                     'headers': {'User-Agent': user_agent},
-                    'proxies': get_scraperapi_proxy()
+                    'proxies': get_scraperapi_proxy(),
+                    'verify': True
                 }
             )
             pytrends.build_payload([phrase], cat=0, timeframe='today 12-m', geo='', gprop='')
@@ -83,55 +91,44 @@ def fetch_single_phrase_trend(phrase, user_agent, retries=3):
             if df.empty:
                 raise ValueError(f"No data for phrase: {phrase}")
             df = df.drop(columns=["isPartial"], errors="ignore")
-            monthly = df.resample('ME').mean().round(0)
-            trend = [{"date": str(index.date()), "interest": int(row[phrase])} for index, row in monthly.iterrows()]
-            if all(point["interest"] == 0 for point in trend):
-                raise ValueError("All-zero trend")
-            return trend
+            monthly = df.resample('M').mean().round(0)
+            result = monthly.rename(columns={phrase: "interest"})
+
+            # Cache it
+            trend_cache[phrase] = [
+                {"date": str(index.date()), "interest": int(row["interest"])}
+                for index, row in result.iterrows()
+            ]
+            save_trend_cache()
+
+            return result
         except Exception as e:
             print(f"❌ Retry {attempt + 1} for '{phrase}': {e}")
     raise ValueError(f"Failed to fetch after {retries} attempts: {phrase}")
 
 def fetch_trend_data(phrases):
     try:
-        results = {}
-        threads = []
+        monthly_data = []
 
-        def fetch_and_store(phrase):
-            if phrase in TREND_CACHE:
-                print(f"⚡ Using cached trend for: {phrase}")
-                results[phrase] = TREND_CACHE[phrase]
-            else:
-                user_agent = get_unique_user_agent()
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = [
+                executor.submit(fetch_single_phrase_trend, phrase, get_unique_user_agent())
+                for phrase in phrases
+            ]
+
+            for future in futures:
                 try:
-                    print(f"📊 Fetching trend for: {phrase}")
-                    trend = fetch_single_phrase_trend(phrase, user_agent)
-                    results[phrase] = trend
-                    TREND_CACHE[phrase] = trend
-                    save_cache()
-                except Exception as inner_e:
-                    print(f"⚠️ Skipped '{phrase}': {inner_e}")
+                    monthly_data.append(future.result())
+                except Exception as e:
+                    print(f"⚠️ Skipped phrase due to error: {e}")
 
-        for phrase in phrases:
-            thread = threading.Thread(target=fetch_and_store, args=(phrase,))
-            thread.start()
-            threads.append(thread)
-
-        for thread in threads:
-            thread.join()
-
-        if not results:
+        if not monthly_data:
             raise ValueError("No trend data was returned for any keyword")
 
-        # Combine trends
-        all_dates = sorted(set(d["date"] for trend in results.values() for d in trend))
-        trend_map = {date: [] for date in all_dates}
-        for trend in results.values():
-            for entry in trend:
-                trend_map[entry["date"]].append(entry["interest"])
-
-        averaged = [{"date": date, "interest": round(sum(vals)/len(vals))} for date, vals in trend_map.items()]
-        return {"keyword": ", ".join(phrases), "trend": averaged}
+        combined = pd.concat(monthly_data, axis=1).fillna(0)
+        combined["average"] = combined.mean(axis=1).astype(int)
+        trend = [{"date": str(index.date()), "interest": row["average"]} for index, row in combined.iterrows()]
+        return {"keyword": ", ".join(phrases), "trend": trend}
 
     except Exception as e:
         print(f"❌ Trend scraping error: {e}\n")
