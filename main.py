@@ -6,12 +6,15 @@ import re
 import json
 from random import choice
 import os
+import threading
 
 app = Flask(__name__)
 CORS(app)
 
 SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY") or "your_scraperapi_key_here"
+TREND_CACHE_FILE = "trend_cache.json"
 
+# Load user agents from file
 def load_user_agents(file_path="user_agents.json"):
     try:
         with open(file_path, "r") as f:
@@ -22,7 +25,17 @@ def load_user_agents(file_path="user_agents.json"):
 
 USER_AGENTS = load_user_agents()
 recent_agents = []
-TREND_CACHE_FILE = "trend_cache.json"
+
+# Load trend cache
+try:
+    with open(TREND_CACHE_FILE, "r") as f:
+        TREND_CACHE = json.load(f)
+except:
+    TREND_CACHE = {}
+
+def save_cache():
+    with open(TREND_CACHE_FILE, "w") as f:
+        json.dump(TREND_CACHE, f, indent=2)
 
 def get_unique_user_agent():
     global recent_agents
@@ -38,7 +51,7 @@ def get_unique_user_agent():
 
 def clean_phrases(raw_title):
     print(f"📥 Raw keyword: {raw_title}")
-    raw_phrases = raw_title.lower().split(",")[:4]
+    raw_phrases = raw_title.lower().split(",")[:3]  # ✅ Use top 3 phrases
     phrases = []
     for phrase in raw_phrases:
         cleaned = re.sub(r"[^\w\s]", "", phrase).strip()
@@ -71,32 +84,54 @@ def fetch_single_phrase_trend(phrase, user_agent, retries=3):
                 raise ValueError(f"No data for phrase: {phrase}")
             df = df.drop(columns=["isPartial"], errors="ignore")
             monthly = df.resample('ME').mean().round(0)
-            return monthly.rename(columns={phrase: "interest"})
+            trend = [{"date": str(index.date()), "interest": int(row[phrase])} for index, row in monthly.iterrows()]
+            if all(point["interest"] == 0 for point in trend):
+                raise ValueError("All-zero trend")
+            return trend
         except Exception as e:
             print(f"❌ Retry {attempt + 1} for '{phrase}': {e}")
     raise ValueError(f"Failed to fetch after {retries} attempts: {phrase}")
 
 def fetch_trend_data(phrases):
     try:
-        monthly_data = []
+        results = {}
+        threads = []
+
+        def fetch_and_store(phrase):
+            if phrase in TREND_CACHE:
+                print(f"⚡ Using cached trend for: {phrase}")
+                results[phrase] = TREND_CACHE[phrase]
+            else:
+                user_agent = get_unique_user_agent()
+                try:
+                    print(f"📊 Fetching trend for: {phrase}")
+                    trend = fetch_single_phrase_trend(phrase, user_agent)
+                    results[phrase] = trend
+                    TREND_CACHE[phrase] = trend
+                    save_cache()
+                except Exception as inner_e:
+                    print(f"⚠️ Skipped '{phrase}': {inner_e}")
 
         for phrase in phrases:
-            user_agent = get_unique_user_agent()
-            try:
-                print(f"📊 Fetching trend for: {phrase}")
-                trend_df = fetch_single_phrase_trend(phrase, user_agent)
-                monthly_data.append(trend_df)
-            except Exception as inner_e:
-                print(f"⚠️ Skipped '{phrase}': {inner_e}")
-                continue
+            thread = threading.Thread(target=fetch_and_store, args=(phrase,))
+            thread.start()
+            threads.append(thread)
 
-        if not monthly_data:
+        for thread in threads:
+            thread.join()
+
+        if not results:
             raise ValueError("No trend data was returned for any keyword")
 
-        combined = pd.concat(monthly_data, axis=1).fillna(0)
-        combined["average"] = combined.mean(axis=1).astype(int)
-        trend = [{"date": str(index.date()), "interest": row["average"]} for index, row in combined.iterrows()]
-        return {"keyword": ", ".join(phrases), "trend": trend}
+        # Combine trends
+        all_dates = sorted(set(d["date"] for trend in results.values() for d in trend))
+        trend_map = {date: [] for date in all_dates}
+        for trend in results.values():
+            for entry in trend:
+                trend_map[entry["date"]].append(entry["interest"])
+
+        averaged = [{"date": date, "interest": round(sum(vals)/len(vals))} for date, vals in trend_map.items()]
+        return {"keyword": ", ".join(phrases), "trend": averaged}
 
     except Exception as e:
         print(f"❌ Trend scraping error: {e}\n")
